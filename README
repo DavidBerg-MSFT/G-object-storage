@@ -157,6 +157,14 @@ RUNTIME PARAMETERS
 
 
 RESULT METRICS
+bw                 mean aggregate (for all workers) bandwidth (bytes/sec)
+bw_median          median aggregate bandwidth (bytes/sec)
+bw_mbs             mean aggregate bandwidth (mb/sec)
+bw_mbs_median      median aggregate bandwidth (mb/sec)
+bw_rstdev          relative standard deviation (sample) of aggregate bandwidth metrics
+bw_rstdevp         relative  standard deviation (population) of aggregate bandwidth metrics
+bw_stdev           standard deviation (sample) of aggregate bandwidth metrics
+bw_stdevp          standard deviation (population) of aggregate bandwidth metrics
 ops                total number of test operations (segmented op counted as 1)
 ops_failed         failed test operations
 ops_failed_ratio   ratio of failed to total operations as a percentage
@@ -169,18 +177,26 @@ ops_size_mb        mean size (megabytes) of test operations
 ops_size_mb_median median size (megabytes) of test operations
 ops_success        successful test operations
 ops_success_ratio  ratio of success to total operations as a percentage
+requests           total number of http requests
+requests_failed    failed http requests
+requests_failed_ratio ratio of failed to total requests as a percentage
+requests_pull      pull test requests
+requests_push      push test requests
+requests_secure    number of secure/https test requests
+requests_success   successful test requests
+requests_success_ratio ratio of success to total requests as a percentage
 segment            mean segment size (bytes) - if segmented ops performed
 segment_median     median segment size (bytes) - if segmented ops performed
 segment_mb         mean segment size (megabytes) - if segmented ops performed
 segment_mb_median  median segment size (megabytes) - if segmented ops performed
-speed              mean bandwidth (bytes/sec)
-speed_median       median bandwidth (bytes/sec)
-speed_mbs          mean bandwidth (mb/sec)
-speed_mbs_median   median bandwidth (mb/sec)
-speed_rstdev       relative standard deviation (sample) of bandwidth metrics
-speed_rstdevp      relative  standard deviation (population) of bandwidth metrics
-speed_stdev        standard deviation (sample) of bandwidth metrics
-speed_stdevp       standard deviation (population) of bandwidth metrics
+speed              mean worker bandwidth (bytes/sec)
+speed_median       median worker bandwidth (bytes/sec)
+speed_mbs          mean worker bandwidth (mb/sec)
+speed_mbs_median   median worker bandwidth (mb/sec)
+speed_rstdev       relative standard deviation (sample) of worker bandwidth metrics
+speed_rstdevp      relative  standard deviation (population) of worker bandwidth metrics
+speed_stdev        standard deviation (sample) of worker bandwidth metrics
+speed_stdevp       standard deviation (population) of worker bandwidth metrics
 status_codes       http status codes returned by the storage service and their 
                    frequency (e.g. 200/10; 404/2)
 time               test time including admin, rampup and spacing (secs)

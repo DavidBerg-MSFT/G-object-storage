@@ -63,6 +63,15 @@ abstract class ObjectStorageController {
   private $spacing_min_relative = FALSE;
   
   // used to track testing stats
+  private $stat_bw = 0;                    // mean aggregate bandwidth (bytes/sec)
+  private $stat_bw_median = 0;             // median aggregate bandwidth (bytes/sec)
+  private $stat_bw_mbs = 0;                // mean aggregate bandwidth (mb/sec)
+  private $stat_bw_mbs_median = 0;         // median aggregate bandwidth (mb/sec)
+  private $stat_bw_rstdev = 0;             // relative standard deviation (sample) of aggregate bandwidth metrics
+  private $stat_bw_rstdevp = 0;            // relative  standard deviation (population) of aggregate bandwidth metrics
+  private $stat_bw_stdev = 0;              // standard deviation (sample) of aggregate bandwidth metrics
+  private $stat_bw_stdevp = 0;             // standard deviation (population) of aggregate bandwidth metrics
+  private $stat_bw_vals = array();         // used to compute the preceeding 8 metrics
   private $stat_ops = 0;                   // total number of test operations (segmented op counted as 1)
   private $stat_ops_failed = 0;            // failed test operations
   private $stat_ops_failed_ratio = 0;      // ratio of failed to total operations as a percentage
@@ -77,15 +86,23 @@ abstract class ObjectStorageController {
   private $stat_ops_success = 0;           // successful test operations
   private $stat_ops_success_ratio = 0;     // ratio of success to total operations as a percentage
   private $stat_ops_times = array();       // operation times - used to compute relative spacing
+  private $stat_requests = 0;              // total number of http requests
+  private $stat_requests_failed = 0;       // failed http requests
+  private $stat_requests_failed_ratio = 0; // ratio of failed to total requests as a percentage
+  private $stat_requests_pull = 0;         // pull test requests
+  private $stat_requests_push = 0;         // push test requests
+  private $stat_requests_secure = 0;       //number of secure/https test requests
+  private $stat_requests_success = 0;      // successful test requests
+  private $stat_requests_success_ratio = 0;// ratio of success to total requests as a percentage
   private $stat_segment = 0;               // mean segment size (bytes) - if segmented ops performed
   private $stat_segment_median = 0;        // median segment size (bytes) - if segmented ops performed
   private $stat_segment_mb = 0;            // mean segment size (megabytes) - if segmented ops performed
   private $stat_segment_mb_median = 0;     // median segment size (megabytes) - if segmented ops performed
   private $stat_segment_vals = array();    // used to compute the preceeding 4 metrics
-  private $stat_speed = 0;                 // mean bandwidth speed (bytes/sec)
-  private $stat_speed_median = 0;          // median bandwidth speed (bytes/sec)
-  private $stat_speed_mbs = 0;             // mean bandwidth speed (mb/sec)
-  private $stat_speed_mbs_median = 0;      // median bandwidth speed (mb/sec)
+  private $stat_speed = 0;                 // mean worker bandwidth speed (bytes/sec)
+  private $stat_speed_median = 0;          // median worker bandwidth speed (bytes/sec)
+  private $stat_speed_mbs = 0;             // mean worker bandwidth speed (mb/sec)
+  private $stat_speed_mbs_median = 0;      // median worker bandwidth speed (mb/sec)
   private $stat_speed_rstdev = 0;          // relative standard deviation (sample) of bandwidth metrics
   private $stat_speed_rstdevp = 0;         // relative standard deviation (population) of bandwidth metrics
   private $stat_speed_stdev = 0;           // standard deviation (sample) of bandwidth metrics
@@ -270,6 +287,15 @@ abstract class ObjectStorageController {
     // update stats
     if ($record && isset($result['results']) && count($result['results']) && $result['highest_status']) {
       self::log(sprintf('Updating test stats'), 'ObjectStorageController::curl', __LINE__);
+      // stat_bw                 => mean aggregate bandwidth (bytes/sec)
+      // stat_bw_median          => median aggregate bandwidth (bytes/sec)
+      // stat_bw_mbs             => mean aggregate bandwidth (mb/sec)
+      // stat_bw_mbs_median      => median aggregate bandwidth (mb/sec)
+      // stat_bw_rstdev          => relative standard deviation (sample) of aggregate bandwidth metrics
+      // stat_bw_rstdevp         => relative  standard deviation (population) of aggregate bandwidth metrics
+      // stat_bw_stdev           => standard deviation (sample) of aggregate bandwidth metrics
+      // stat_bw_stdevp          => standard deviation (population) of aggregate bandwidth metrics
+      // stat_bw_vals            => used to compute the preceeding 8 metrics
       // stat_ops                => total number of test operations (segmented op counted as 1)
       // stat_ops_failed         => failed test operations
       // stat_ops_failed_ratio   => ratio of failed to total operations as a percentage
@@ -284,19 +310,27 @@ abstract class ObjectStorageController {
       // stat_ops_success        => successful test operations
       // stat_ops_success_ratio  => ratio of success to total operations as a percentage
       // stat_ops_times          => operation times - used to compute relative spacing
+      // stat_requests           => total number of http requests
+      // stat_requests_failed    => failed http requests
+      // stat_requests_failed_ratio => ratio of failed to total requests as a percentage
+      // stat_requests_pull      => pull test requests
+      // stat_requests_push      => push test requests
+      // stat_requests_secure    => number of secure/https test requests
+      // stat_requests_success   => successful test requests
+      // stat_requests_success_ratio => ratio of success to total requests as a percentage
       // stat_segment            => mean segment size (bytes) - if segmented ops performed
       // stat_segment_median     => median segment size (bytes) - if segmented ops performed
       // stat_segment_mb         => mean segment size (megabytes) - if segmented ops performed
       // stat_segment_mb_median  => median segment size (megabytes) - if segmented ops performed
       // stat_segment_vals       => used to compute the preceeding 2 metrics
-      // stat_speed              => mean bandwidth speed (bytes/sec)
-      // stat_speed_median       => median bandwidth speed (bytes/sec)
-      // stat_speed_mbs          => mean bandwidth speed (mb/sec)
-      // stat_speed_mbs_median   => median bandwidth speed (mb/sec)
-      // stat_speed_rstdev       => relative standard deviation (sample) of bandwidth metrics
-      // stat_speed_rstdevp      => relative standard deviation (population) of bandwidth metrics
-      // stat_speed_stdev        => standard deviation (sample) of bandwidth metrics
-      // stat_speed_stdevp       => standard deviation (population) of bandwidth metrics
+      // stat_speed              => mean worker bandwidth speed (bytes/sec)
+      // stat_speed_median       => median worker bandwidth speed (bytes/sec)
+      // stat_speed_mbs          => mean worker bandwidth speed (mb/sec)
+      // stat_speed_mbs_median   => median worker bandwidth speed (mb/sec)
+      // stat_speed_rstdev       => relative standard deviation (sample) of worker bandwidth metrics
+      // stat_speed_rstdevp      => relative standard deviation (population) of worker bandwidth metrics
+      // stat_speed_stdev        => standard deviation (sample) of worker bandwidth metrics
+      // stat_speed_stdevp       => standard deviation (population) of worker bandwidth metrics
       // stat_speed_vals         => used to compute the preceeding 8 metrics
       // stat_status_codes       => http status codes returned by the storage service and their frequency (e.g. 200/10; 404/2)
       // stat_time               => total test time including admin, rampup and spacing (secs)
@@ -334,12 +368,24 @@ abstract class ObjectStorageController {
       // stat_status_codes
       foreach($result['status'] as $status) isset($this->stat_status_codes[$status]) ? $this->stat_status_codes[$status]++ : $this->stat_status_codes[$status] = 1;
       
+      // stat_requests, stat_requests_failed, stat_requests_pull, 
+      // stat_requests_push, stat_requests_secure, stat_requests_success
+      foreach($rkeys as $i) {
+        $this->stat_requests++;
+        $result['highest_status'] < 400 ? $this->stat_requests_success++ : $this->stat_requests_failed++;
+        $method == 'GET' ? $this->stat_requests_pull++ : $this->stat_requests_push++;
+        if (preg_match('/^https/i', $result['results'][$i]['url'])) $this->stat_requests_secure++;
+      }
+      
       // stats only included for successful operations
       if ($result['highest_status'] < 400) {
         // stat_ops_size, stat_ops_size_median, stat_ops_size_mb, stat_ops_size_mb_median, stat_ops_size_vals
         $size = 0;
         foreach($rkeys as $i) $size += $result['results'][$i]['transfer'];
         $this->stat_ops_size_vals[] = $size;
+        
+        // stat_bw, stat_bw_median, stat_bw_mbs, stat_bw_mbs_median, stat_bw_rstdev, stat_bw_rstdevp, stat_bw_stdev, stat_bw_stdevp, stat_bw_vals
+        $this->stat_bw_vals[] = $size/$curl_time;
         
         // stat_transfer, stat_transfer_mb, stat_transfer_pull, stat_transfer_pull_mb, stat_transfer_push, stat_transfer_push_mb
         $this->stat_transfer += $size;
@@ -871,6 +917,15 @@ abstract class ObjectStorageController {
    * @return void
    */
   function stats() {
+    // stat_bw                 => mean aggregate bandwidth (bytes/sec)
+    // stat_bw_median          => median aggregate bandwidth (bytes/sec)
+    // stat_bw_mbs             => mean aggregate bandwidth (mb/sec)
+    // stat_bw_mbs_median      => median aggregate bandwidth (mb/sec)
+    // stat_bw_rstdev          => relative standard deviation (sample) of aggregate bandwidth metrics
+    // stat_bw_rstdevp         => relative  standard deviation (population) of aggregate bandwidth metrics
+    // stat_bw_stdev           => standard deviation (sample) of aggregate bandwidth metrics
+    // stat_bw_stdevp          => standard deviation (population) of aggregate bandwidth metrics
+    // stat_bw_vals            => used to compute the preceeding 8 metrics
     // stat_ops                => total number of test operations (segmented op counted as 1)
     // stat_ops_failed         => failed test operations
     // stat_ops_failed_ratio   => ratio of failed to total operations as a percentage
@@ -885,19 +940,27 @@ abstract class ObjectStorageController {
     // stat_ops_success        => successful test operations
     // stat_ops_success_ratio  => ratio of success to total operations as a percentage
     // stat_ops_times          => operation times - used to compute relative spacing
+    // stat_requests           => total number of http requests
+    // stat_requests_failed    => failed http requests
+    // stat_requests_failed_ratio => ratio of failed to total requests as a percentage
+    // stat_requests_pull      => pull test requests
+    // stat_requests_push      => push test requests
+    // stat_requests_secure    => number of secure/https test requests
+    // stat_requests_success   => successful test requests
+    // stat_requests_success_ratio => ratio of success to total requests as a percentage
     // stat_segment            => mean segment size (bytes) - if segmented ops performed
     // stat_segment_median     => median segment size (bytes) - if segmented ops performed
     // stat_segment_mb         => mean segment size (megabytes) - if segmented ops performed
     // stat_segment_mb_median  => median segment size (megabytes) - if segmented ops performed
     // stat_segment_vals       => used to compute the preceeding 2 metrics
-    // stat_speed              => mean bandwidth speed (bytes/sec)
-    // stat_speed_median       => median bandwidth speed (bytes/sec)
-    // stat_speed_mbs          => mean bandwidth speed (mb/sec)
-    // stat_speed_mbs_median   => median bandwidth speed (mb/sec)
-    // stat_speed_rstdev       => relative standard deviation (sample) of bandwidth metrics
-    // stat_speed_rstdevp      => relative standard deviation (population) of bandwidth metrics
-    // stat_speed_stdev        => standard deviation (sample) of bandwidth metrics
-    // stat_speed_stdevp       => standard deviation (population) of bandwidth metrics
+    // stat_speed              => mean worker bandwidth speed (bytes/sec)
+    // stat_speed_median       => median worker bandwidth speed (bytes/sec)
+    // stat_speed_mbs          => mean worker bandwidth speed (mb/sec)
+    // stat_speed_mbs_median   => median worker bandwidth speed (mb/sec)
+    // stat_speed_rstdev       => relative standard deviation (sample) of worker bandwidth metrics
+    // stat_speed_rstdevp      => relative standard deviation (population) of worker bandwidth metrics
+    // stat_speed_stdev        => standard deviation (sample) of worker bandwidth metrics
+    // stat_speed_stdevp       => standard deviation (population) of worker bandwidth metrics
     // stat_speed_vals         => used to compute the preceeding 8 metrics
     // stat_status_codes       => http status codes returned by the storage service and their frequency (e.g. 200/10; 404/2)
     // stat_time               => total test time including admin, rampup and spacing (secs)
@@ -915,6 +978,14 @@ abstract class ObjectStorageController {
     // stat_workers_median     => median concurrent workers
     // stat_workers_per_cpu    => mean concurrent workers per CPU cores (workers/[# CPU cores])
     // stat_workers_vals       => used to compute the preceeding 3 metrics
+    printf("bw=%s\n", $bw = $this->mean($this->stat_bw_vals));
+    printf("bw_median=%s\n", $bw_median = $this->median($this->stat_bw_vals));
+    printf("bw_mbs=%s\n", round((($bw*8)/1024)/1024, self::DEFAULT_ROUND_PRECISION));
+    printf("bw_mbs_median=%s\n", round((($bw_median*8)/1024)/1024, self::DEFAULT_ROUND_PRECISION));
+    printf("bw_rstdev=%s\n", $this->stdev($this->stat_bw_vals, 3));
+    printf("bw_rstdevp=%s\n", $this->stdev($this->stat_bw_vals, 4));
+    printf("bw_stdev=%s\n", $this->stdev($this->stat_bw_vals));
+    printf("bw_stdevp=%s\n", $this->stdev($this->stat_bw_vals, 2));
     printf("ops=%d\n", $this->stat_ops);
     printf("ops_failed=%d\n", $this->stat_ops_failed);
     printf("ops_failed_ratio=%s\n", $this->stat_ops ? round(($this->stat_ops_failed/$this->stat_ops)*100, self::DEFAULT_ROUND_PRECISION) : '0');
@@ -927,14 +998,22 @@ abstract class ObjectStorageController {
     printf("ops_size_mb_median=%s\n", round(($this->median($this->stat_ops_size_vals)/1024)/1024, self::DEFAULT_ROUND_PRECISION));
     printf("ops_success=%d\n", $this->stat_ops_success);
     printf("ops_success_ratio=%s\n", $this->stat_ops ? round(($this->stat_ops_success/$this->stat_ops)*100, self::DEFAULT_ROUND_PRECISION) : '0');
+    printf("requests=%d\n", $this->stat_requests);
+    printf("requests_failed=%d\n", $this->stat_requests_failed);
+    printf("requests_failed_ratio=%s\n", $this->stat_requests ? round(($this->stat_requests_failed/$this->stat_requests)*100, self::DEFAULT_ROUND_PRECISION) : '0');
+    printf("requests_pull=%d\n", $this->stat_requests_pull);
+    printf("requests_push=%d\n", $this->stat_requests_push);
+    printf("requests_secure=%d\n", $this->stat_requests_secure);
+    printf("requests_success=%d\n", $this->stat_requests_success);
+    printf("requests_success_ratio=%s\n", $this->stat_requests ? round(($this->stat_requests_success/$this->stat_requests)*100, self::DEFAULT_ROUND_PRECISION) : '0');
     printf("segment=%d\n", round($this->mean($this->stat_segment_vals)));
     printf("segment_median=%d\n", round($this->median($this->stat_segment_vals)));
     printf("segment_mb=%s\n", round(($this->mean($this->stat_segment_vals)/1024)/1024, self::DEFAULT_ROUND_PRECISION));
     printf("segment_mb_median=%s\n", round(($this->median($this->stat_segment_vals)/1024)/1024, self::DEFAULT_ROUND_PRECISION));
-    printf("speed=%s\n", $this->mean($this->stat_speed_vals));
-    printf("speed_median=%s\n", $this->median($this->stat_speed_vals));
-    printf("speed_mbs=%s\n", round((($this->mean($this->stat_speed_vals)*8)/1024)/1024, self::DEFAULT_ROUND_PRECISION));
-    printf("speed_mbs_median=%s\n", round((($this->median($this->stat_speed_vals)*8)/1024)/1024, self::DEFAULT_ROUND_PRECISION));
+    printf("speed=%s\n", $speed = $this->mean($this->stat_speed_vals));
+    printf("speed_median=%s\n", $speed_median = $this->median($this->stat_speed_vals));
+    printf("speed_mbs=%s\n", round((($speed*8)/1024)/1024, self::DEFAULT_ROUND_PRECISION));
+    printf("speed_mbs_median=%s\n", round((($speed_median*8)/1024)/1024, self::DEFAULT_ROUND_PRECISION));
     printf("speed_rstdev=%s\n", $this->stdev($this->stat_speed_vals, 3));
     printf("speed_rstdevp=%s\n", $this->stdev($this->stat_speed_vals, 4));
     printf("speed_stdev=%s\n", $this->stdev($this->stat_speed_vals));
