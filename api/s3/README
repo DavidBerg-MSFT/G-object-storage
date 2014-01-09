@@ -1,0 +1,13 @@
+Implements an AWS S3 API compatible layer for object storage testing. The S3 
+API supports both multipart upload (minimum 5MB segment size) and byte range 
+downloads.
+
+
+API SPECIFIC RUNTIME PARAMETERS
+* dns_containers   [1|0] Whether to reference S3 buckets using DNS (e.g. 
+                   https://mybucket.s3.amazonaws.com) or URI based methods 
+                   (e.g. https://s3.amazonaws.com/mybucket). Default is 1
+* encryption       [AES256] Set this parameter to 'AES256' to utilize S3's 
+                   server-side encryption
+* storage_class    [STANDARD | REDUCED_REDUNDANCY] Desired S3 storage class.
+                   Default is STANDARD

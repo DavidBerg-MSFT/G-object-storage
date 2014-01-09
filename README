@@ -1,0 +1,199 @@
+Object Storage Benchmark
+
+Measures performance of an object storage platform. To do so, compute instances 
+act as test agents performing IO operations and capturing associated throughput 
+metrics. Testing supports the configurable options defined below. To simulate 
+higher load, parallel testing may be initiated using groups of 2 or more 
+compute instances.
+
+Testing does not involve local block storage IO. To accomplish this, download 
+tests are written directly to /dev/null and upload tests from urandom.php. 
+urandom.php uses dd if=/dev/urandom to seed some random bytes and repeatedly 
+prints those bytes.
+
+
+RUNTIME PARAMETERS
+* api              [REQUIRED] Object storage API to use for testing. This 
+                   parameter must correspond to a sub-directory in ./api. Each 
+                   such directory provides an implementation of the 
+                   functionality needed for testing to include authentication, 
+                   container listing, and generation of signed URLs
+* api_endpoint     Optional hostname or IP for API interaction. Service 
+                   specific APIs usually have such endpoints pre-defined and 
+                   thus do not require this parameter. The api_region parameter 
+                   may also correspond to pre-defined service endpoints. If 
+                   specified, this parameter overrides such mapped endpoints
+* api_key          [REQUIRED] API authentication key or user
+* api_region       Object storage region identifier. Valid api_region values 
+                   may be defined in API specific READMEs. This parameter is 
+                   used to select the correct api_endpoint for multi-region 
+                   object storage services. If both api_region and api_endpoint 
+                   are specified, the latter will take precedence
+* api_secret       [REQUIRED] API authentication secret or password
+* api_ssl          [0|1] Whether or not to test throughput using http 
+                   (plaintext) or https (secure) protocols. Some services may 
+                   not support both. The actual protocol used will be 
+                   designated by the 'secure' result flag (default 0)
+* cleanup          [0|1] Delete test objects/files/container created as a 
+                   result of the testing. Only objects/files/container created 
+                   during the course of testing are deleted (default 1)
+* container        Name of an object storage container/bucket to use for 
+                   testing. May contain the dynamic value '{resourceId}' 
+                   which will be replaced by the unique numeric identifier of 
+                   the compute instance (default 'chtest{resourceId}'). 
+                   Container will be created if it does not already exist
+* container_wait   Number of seconds to wait after a container is created 
+                   before attempting to use it. Default is 1 second
+* debug            [0|1] Enable verbose logging? (default 0)
+* duration         Duration for each test iteration - either a set time or 
+                   number of test operations. For time, a quantifier suffix 
+                   must be used including either s/seconds, m/minutes, or 
+                   h/hours (default '1m')
+                   Examples:
+                     -p duration=3    perform 3 total test operations per test 
+                                      iteration
+                     -p duration=5m   perform test operations for 5 minutes 
+                                      during each test iteration
+* encryption       Optional service specific encryption algorithm to apply to
+                   objects created during testing
+* insecure         [0|1] Use the curl -k/--insecure option, meaning SSL 
+                   certificates will not be validated using the CA certificate 
+                   bundle
+* name             Naming convention for test objects. Default is 
+                   'test{size}.bin' where {size} is replaced by the byte 
+                   size of the object. The dynamic value {resourceId} may also
+                   be included in name. Objects will be created if they do not
+                   already exist. If objects exist but are not the correct size
+                   they will be deleted and re-created
+* rampup:          Designates an optional "ramp up" period to apply prior to 
+                   initiating each test iteration. During rampup, IO operations 
+                   for the 'size' specified will be performed but the associated 
+                   metrics are excluded from the results. A time quantifier 
+                   suffix may be used including s/seconds, m/minutes, or 
+                   h/hours. If none is specified, seconds will be assumed
+* randomize        [0|1] If multiple 'size' parameters are set, or 'type=both', 
+                   setting 'randomize=1' will cause test operations to be 
+                   selected at random (including size and/or type) instead of 
+                   in sequence (default 0)
+* segment          Defines segmentation for test objects when 'workers>1' 
+                   (see 'workers' parameter below). Setting this parameter 
+                   modifies worker behavior such that instead of each worker 
+                   downloading an object separately, they work together to 
+                   download the same object once using either range requests 
+                   for download, or multipart for upload operations. When set, 
+                   this parameter also defines the smallest segment size a 
+                   worker will be assigned to. If [object size]/[workers] is 
+                   less than this value, the number of 'workers' is reduced to 
+                   [object size]/[segment]. For example, if size=256MB, 
+                   segment=32MB and workers=16, [object size]/[workers]==16MB 
+                   which is less than 32MB. Hence, [object size]/[segment]
+                   would be used to reduce the number of workers from 16 to 8
+                   (256/32==8). In the case where an object storage service 
+                   does not support range requests (for download), or multipart 
+                   (for upload), testing behavior will revert to independent 
+                   operations for the sizes designated. Setting this parameter 
+                   to "1" will cause the test harness to utilize max possible 
+                   segmentation based on number of workers, object size and 
+                   service specific segmentation support (e.g. AWS S3 multipart 
+                   uploads must be at least 5MB each)
+                   Examples:
+                     -p segment=32MB  32MB minimum segment size per worker
+                     -p segment=1MB   1MB minimum segment size per worker
+* size:            Object size(s) to test with in bytes. Multiple sizes may be 
+                   specified using comma separated values. Values may contain 
+                   any standard size quantifier suffix including KB (kilobytes)
+                   MB (megabytes) and GB (gigabytes). The default quantifier is 
+                   bytes. If multiple sizes are specified, they will be tested 
+                   in the order specified unless the 'size_randomize' parameter
+                   is set. The maximum size is 10GB. The default size is 5MB.
+                   Examples: 
+                     -p size=5MB
+                     -p size="50KB,100KB,200KB"
+* spacing          Spacing to apply between each test operation. May be either 
+                   a set time or a ratio. The former will be assumed to be 
+                   microseconds unless a time suffix (either ms/milliseconds or 
+                   s/seconds) is specified. For the latter, spacing applied will 
+                   be dynamically calculated based on the duration of the prior 
+                   operation. A range of values may also be specified separated 
+                   by a dash
+                   Examples:
+                     -p spacing=10000    use set spacing of 10,000 microseconds 
+                                         (10 milliseconds) between operations
+                     -p spacing=10%      use relative spacing equal to 10% of
+                                         the previous operation time
+                     -p spacing=10%-50%  use a random spacing value between 10%
+                                         and 50% of the previous operation time
+                     -p spacing=1s       use set spacing of 1 second between 
+                                         operations
+                     -p spacing=10%-1s   use a random spacing value between 10%
+                                         and 1 second of the previous operation 
+                                         time
+                   NOTE: spacing is not applied during rampup
+* storage_class    Optional service specific storage class to use when creating 
+                   objects
+* type             [pull|push|both] The type of object storage IO to perform - 
+                   either pull (download), push (upload) or both (default 
+                   'pull')
+* workers          The number of concurrent worker processes to utilize for 
+                   test operations. Worker processes can either collaborate to 
+                   download/upload an object once wherein each worker handles a 
+                   different part of the object, or work independent of each 
+                   other wherein each downloads/uploads the same object 
+                   separately. The latter is the default behavior unless the 
+                   'segment' parameter is set. This parameter may also be a 
+                   ratio to number of CPU cores. Use the suffix "/core" or 
+                   "/cpu" to set it as such. Default is 1
+                   Examples:
+                     -p workers=2       2 workers
+                     -p workers=2/core  2 workers per CPU core
+                     -p workers=2/cpu   4 workers per CPU core
+* workers_init     The number of concurrent workers to use to initialize 
+                   objects for testing. Applies only to pull/download tests and 
+                   multipart capable storage platforms when the 'segment' 
+                   parameter is set and the test objects do not already exist 
+                   in the container. In this case, workers_init and segment are 
+                   used to determine the number of multipart uploads to use in 
+                   order to create the necessary objects. Default is 1
+
+
+RESULT METRICS
+ops                total number of test operations (segmented op counted as 1)
+ops_failed         failed test operations
+ops_failed_ratio   ratio of failed to total operations as a percentage
+ops_pull           pull test operations
+ops_push           push test operations
+ops_secure         number of secure/https test operations
+ops_size           mean size (bytes) of test operations
+ops_size_median    median size (bytes) of test operations
+ops_size_mb        mean size (megabytes) of test operations
+ops_size_mb_median median size (megabytes) of test operations
+ops_success        successful test operations
+ops_success_ratio  ratio of success to total operations as a percentage
+segment            mean segment size (bytes) - if segmented ops performed
+segment_median     median segment size (bytes) - if segmented ops performed
+segment_mb         mean segment size (megabytes) - if segmented ops performed
+segment_mb_median  median segment size (megabytes) - if segmented ops performed
+speed              mean bandwidth (bytes/sec)
+speed_median       median bandwidth (bytes/sec)
+speed_mbs          mean bandwidth (mb/sec)
+speed_mbs_median   median bandwidth (mb/sec)
+speed_rstdev       relative standard deviation (sample) of bandwidth metrics
+speed_rstdevp      relative  standard deviation (population) of bandwidth metrics
+speed_stdev        standard deviation (sample) of bandwidth metrics
+speed_stdevp       standard deviation (population) of bandwidth metrics
+status_codes       http status codes returned by the storage service and their 
+                   frequency (e.g. 200/10; 404/2)
+time               test time including admin, rampup and spacing (secs)
+time_admin         duration of administrative test operations (secs)
+time_ops           duration of test operations included in the stats (secs)
+time_rampup        duration of rampup test operations (secs)
+time_spacing       duration of spacing between test operations (secs)
+transfer           total bytes transferred (excluding rampup)
+transfer_mb        total megabytes transferred (excluding rampup)
+transfer_pull      bytes transferred for pull operations
+transfer_pull_mb   megabytes transferred for pull operations
+transfer_push      bytes transferred for push operations
+transfer_push_mb   megabytes transferred for push operations
+workers            mean concurrent workers
+workers_median     median concurrent workers
+workers_per_cpu    mean concurrent workers per CPU cores (workers/[# CPU cores])
