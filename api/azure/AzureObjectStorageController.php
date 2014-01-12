@@ -59,7 +59,7 @@ class AzureObjectStorageController extends ObjectStorageController {
       foreach(array_keys($results['response']) as $i) {
         if (isset($results['urls'][$i]) && preg_match('/blockid=([^&]+)/', $results['urls'][$i], $m)) {
           $part = $m[1];
-          self::log(sprintf('Got blockid %s for part %d', $part, $i), 'AzureObjectStorageController::completeMultipartUpload', __LINE__);
+          self::log(sprintf('Got blockid %s for part %d', $part, $i+1), 'AzureObjectStorageController::completeMultipartUpload', __LINE__);
           $xml .= sprintf("<Latest>%s</Latest>\n", $part);
         }
         else $added = FALSE;
@@ -78,22 +78,6 @@ class AzureObjectStorageController extends ObjectStorageController {
         else self::log(sprintf('Complete multipart upload request failed using xml: %s', $xml), 'AzureObjectStorageController::completeMultipartUpload', __LINE__, TRUE);
       }
       else self::log(sprintf('Failed to retrieve parts'), 'AzureObjectStorageController::completeMultipartUpload', __LINE__, TRUE);
-      
-      // if ($added) {
-      //   $xml .= '</BlockList>';
-      //   $headers = array('date' => gmdate(self::SIGNATURE_DATE_FORMAT), 'x-ms-version' => self::API_VERSION);
-      //   $params = array('comp' => 'blocklist');
-      //   $headers['Authorization'] = $this->sign('GET', $headers, $container, $object, $params);
-      //   $request = array('method' => 'GET', 'url' => $this->getUrl($container, $object, $params), 'headers' => $headers);
-      //   $success = NULL;
-      //   if ($result = $this->curl(array($request), TRUE)) {
-      //     print_r($result);
-      //     $success = $result['status'][0] == 201;
-      //     self::log(sprintf('Complete multipart upload request %s with status code %d for object %s/%s', $success ? 'completed successfully' : 'failed (xml: ' . $xml . ')', $result['status'][0], $container, $object), 'AzureObjectStorageController::completeMultipartUpload', __LINE__, !$success);
-      //   }
-      //   else self::log(sprintf('Complete multipart upload request failed using xml: %s', $xml), 'AzureObjectStorageController::completeMultipartUpload', __LINE__, TRUE);
-      // }
-      // else self::log(sprintf('Failed to retrieve parts'), 'AzureObjectStorageController::completeMultipartUpload', __LINE__, TRUE);
     }
     return $success;
   }
@@ -169,7 +153,7 @@ class AzureObjectStorageController extends ObjectStorageController {
     $deleted = NULL;
     if ($result = $this->curl(array($request))) {
       $deleted = $result['status'][0] == 202;
-      self::log(sprintf('DELETE Object request completed - status %d', $result['status'][0], $container), 'AzureObjectStorageController::deleteObject', __LINE__);
+      self::log(sprintf('DELETE Object request completed - status %d', $result['status'][0], $container), 'AzureObjectStorageController::deleteObject', __LINE__, !$deleted);
     }
     else self::log(sprintf('DELETE Object request failed'), 'AzureObjectStorageController::deleteObject', __LINE__, TRUE);
     return $deleted;
@@ -203,7 +187,7 @@ class AzureObjectStorageController extends ObjectStorageController {
    */
   private function getUrl($container=NULL, $object=NULL, $params=NULL) {
     $url = $this->api_url;
-    if ($container) $url = sprintf('%s%s%s', $url, $container ? '/' . $container : '', $object ? '/' . $object : '');
+    if ($container) $url = sprintf('%s%s%s', $url, '/' . $container, $object ? '/' . $object : '');
     if (is_array($params)) {
       foreach(array_keys($params) as $i => $param) {
         $url .= ($i ? '&' : '?') . $param . ($params[$param] ? '=' . $params[$param] : '');

@@ -245,7 +245,7 @@ abstract class ObjectStorageController {
       if (isset($request['range'])) $cmd .= ' -r ' . $request['range'];
       $result['urls'][$i] = $request['url'];
       $cmd .= sprintf(' "%s"', $request['url']);
-      self::log(sprintf('Added curl command: %s', $cmd), 'ObjectStorageController::curl', __LINE__);
+      if ($bm_param_debug) self::log(sprintf('Added curl command: %s', preg_replace('/X-Auth-Token:\s+([^"]+)/', 'X-Auth-Token: xxx', $cmd)), 'ObjectStorageController::curl', __LINE__);
       $ofiles[$i] = sprintf('%s/%s', getenv('bm_run_dir'), 'curl_output_' . rand());
       fwrite($fp, sprintf("%s > %s 2>&1 &\n", $cmd, $ofiles[$i]));
     }
@@ -1174,7 +1174,7 @@ abstract class ObjectStorageController {
         $result = array('urls' => array(), 'request' => array(), 'response' => array(), 'results' => array(), 'status' => array());
         $pos = 0;
         for($i=0; $i<count($curl); $i += $workers) {
-          self::log(sprintf('Processing request batch %d-%d of %d', $i+1, $i+$workers, count($curl)), 'ObjectStorageController::upload', __LINE__);
+          self::log(sprintf('Processing request batch %d-%d of %d', $i+1, ($i+$workers)<count($curl) ? $i+$workers : count($curl), count($curl)), 'ObjectStorageController::upload', __LINE__);
           if ($r = $this->curl(array_slice($curl, $i, $workers), FALSE, $record)) {
             self::log(sprintf('Request batch %d-%d of %d completed successfully', $i+1, $i+1+$workers, count($curl)), 'ObjectStorageController::upload', __LINE__);
             if (!isset($result['lowest_status']) || $result['lowest_status'] > $r['lowest_status']) $result['lowest_status'] = $r['lowest_status'];
@@ -1201,7 +1201,7 @@ abstract class ObjectStorageController {
           foreach(array_keys($uploads) as $i) {
             $upload = isset($uploads[$i]) ? $uploads[$i] : $uploads[1];
             $pieces = explode('?', basename($upload['url']));
-            exec(sprintf('echo "%s" >> %s/%s', $pieces[0], getenv('bm_run_dir'), $testObject ? '.test-objects' : '.cleanup-objects')); 
+            exec(sprintf('echo "%s" >> %s/%s', $pieces[0], getenv('bm_run_dir'), $testObject ? '.test-objects' : '.cleanup-objects'));
           }
           self::log(sprintf('Successfully uploaded object %s/%s in %d parts', $this->container, $name, $parts ? $parts : 1), 'ObjectStorageController::upload', __LINE__);
         }
