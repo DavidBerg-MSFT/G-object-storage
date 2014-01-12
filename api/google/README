@@ -1,0 +1,33 @@
+Implements Google Cloud Storage (GCS) API compatibility.
+
+== Feature Support ==
+# Multiple Regions                   YES (see below)
+# DNS Containers                     YES
+# Download Concurrency (Byte Range)  YES
+# Upload Concurrency (Multipart)     NO
+# Min Multipart Segment Size         Not supported
+# Max Multipart Segment Size         Not supported
+# Max Upload Operation Size          None
+# Encryption                         YES (implicit - see below)
+# Multiple Storage Classes           YES (see below)
+
+
+== API Specific Runtime Parameters ==
+* api_region       GCS supports global and regional containers. Global 
+                   containers have greater distribution and support higher
+                   availability. Global container options: EU, US
+                   Regional containers allow for data to explicitly be stored
+                   in the same data centers as Google Compute Engine. 
+                   Containers of this type always use the 
+                   DURABLE_REDUCED_AVAILABILITY storage class and have a lower 
+                   availability SLA. Regional container options: us-east1, 
+                   us-east2, us-east3, us-central1, us-central2, us-west1. 
+                   Current documentation is available here:
+                   https://developers.google.com/storage/docs/concepts-techniques#specifyinglocations
+                   Default is US
+* encryption       GCS implicitly uses encryption - there is no option to 
+                   enable or disable this option
+* storage_class    [STANDARD | DURABLE_REDUCED_AVAILABILITY] Desired S3 storage 
+                   class. Default is STANDARD for global containers and always 
+                   DURABLE_REDUCED_AVAILABILITY (DRA) for regional containers 
+                   (regional containers must be DRA). Default is STANDARD

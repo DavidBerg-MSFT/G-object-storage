@@ -1,0 +1,32 @@
+Implements Windows Azure Storage API compatibility. This implementation uses
+the Azure Block Blob REST API. This API supports a maximum of 64MB for a single
+upload, and a maximum of 4MB for multipart upload operations. Objects larger 
+than 64MB must be uploaded using multipart.
+
+== Feature Support ==
+# Multiple Regions                   PARTIAL (see below)
+# DNS Containers                     NO
+# Download Concurrency (Byte Range)  YES
+# Upload Concurrency (Multipart)     YES (required for objects > 4MB)
+# Min Multipart Segment Size         None
+# Max Multipart Segment Size         4MB
+# Max Upload Operation Size          64MB
+# Encryption                         NO
+# Multiple Storage Classes           PARTIAL (see below)
+
+
+== API Specific Runtime Parameters ==
+* api_region       Azure supports multiple regions - but the region is 
+                   designated at the time of account creation and cannot be 
+                   modified through the storage API. Thus, while this
+                   parameter may be specified for reporting purposed, it will 
+                   not change the actual location used derived by the account 
+                   configuration. Current Azure storage regions include:
+                   us-east, us-northcentral, us-southcentral, us-west, eu-west,
+                   eu-north, asia-east, asia-southeast
+* storage_class    Azure supports both locally redundant and geo redundant 
+                   storage classes. The latter replicates data to a secondary 
+                   region and provides higher availability. However, this also 
+                   is an account setting that modified using the storage API. 
+                   Azure storage classes are: grs (geo redundant storage) and 
+                   lrs (locally redundant storage)

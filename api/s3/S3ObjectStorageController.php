@@ -7,11 +7,12 @@ class S3ObjectStorageController extends ObjectStorageController {
   const DEFAULT_S3_ENDPOINT = 's3.amazonaws.com';
   const DEFAULT_S3_REGION = 'us-east-1';
   const SIGNATURE_DATE_FORMAT = 'D, d M Y H:i:s T';
+  const ENCRYPTION_AES256 = 'AES256';
+  const STORAGE_CLASS_STANDARD = 'STANDARD';
+  const STORAGE_CLASS_REDUCED_REDUNDANCY = 'REDUCED_REDUNDANCY';
   
   // complete API endpoint URL (e.g. https://s3.amazonaws.com)
   private $api_url;
-  // whether to use DNS based bucket referencing
-  private $dns_containers;
   
   /**
    * invoked once during validation. Should return TRUE if authentication is 
@@ -111,7 +112,7 @@ class S3ObjectStorageController extends ObjectStorageController {
     $created = NULL;
     if ($result = $this->curl(array($request))) {
       $created = $result['status'][0] == 200;
-      self::log(sprintf('PUT Bucket %s request completed for region %s - status %d. Bucket %s %s', $container, $this->api_region, $result['status'][0], $container, $created ? 'created successfully' : 'could not be created'), 'S3ObjectStorageController::createContainer', __LINE__, !$created);
+      self::log(sprintf('PUT Bucket %s request completed for region %s - status %d. Bucket %s %s. XML: %s', $container, $this->api_region, $result['status'][0], $container, $created ? 'created successfully' : 'could not be created', $xml), 'S3ObjectStorageController::createContainer', __LINE__, !$created);
     }
     else self::log(sprintf('PUT Bucket %s request failed for region %s', $container, $this->api_region), 'S3ObjectStorageController::createContainer', __LINE__, TRUE);
     return $created;
@@ -202,7 +203,6 @@ class S3ObjectStorageController extends ObjectStorageController {
    * @return boolean
    */
   protected function init() {
-    $success = FALSE;
     
     // determine region
     if (!$this->api_endpoint && !$this->api_region) $this->api_region = self::DEFAULT_S3_REGION;
@@ -228,14 +228,8 @@ class S3ObjectStorageController extends ObjectStorageController {
 		$this->api_url = preg_match('/^http/i', $this->api_endpoint) ? $this->api_endpoint : ($this->api_ssl ? 'https://' : 'http://') . $this->api_endpoint;
     self::log(sprintf('Set S3 API URL to %s', $this->api_url), 'S3ObjectStorageController::init', __LINE__);
     $this->api_ssl = preg_match('/^https/', $this->api_url) ? TRUE : FALSE;
-    
-		if ($this->api_key && $this->api_secret) {
-		  $this->dns_containers = getenv('bm_param_dns_containers') !== '0';
-		  $success = TRUE;
-	  }
-		else self::log(sprintf('Unable to initiate S3 object because api_key or api_secret parameters are not present'), 'S3ObjectStorageController::init', __LINE__, TRUE);
 
-    return $success;
+    return TRUE;
   }
   
   /**
@@ -269,9 +263,12 @@ class S3ObjectStorageController extends ObjectStorageController {
    *                https if the $this->api_ssl flag is set and supported by 
    *                the storage platform. may contain the following dynamic 
    *                tokens:
-   *                  {size}  replaced with the byte size of the file/part
-   *                  {part}  replaced with incrementing numeric value 
-   *                           corresponding with the part number
+   *                  {size}        replaced with the byte size of the file/part
+   *                  {part}        replaced with incrementing numeric value 
+   *                                corresponding with the part number
+   *                  {part_base64} replaced with incrementing base64 encoded 
+   *                                numeric value corresponding with the part 
+   *                                number
    *   method       http method (if other than PUT)
    *   headers      REQUIRED / hash containing request headers. header values 
    *                may contain the same dynamic tokens as 'url'. The 
@@ -294,19 +291,19 @@ class S3ObjectStorageController extends ObjectStorageController {
     $request = array('headers' => array('content-type' => self::CONTENT_TYPE, 'date' => gmdate(self::SIGNATURE_DATE_FORMAT)));
     $url = $this->getUrl($container, $object);
     $params = NULL;
-    if ($encryption && trim(strtolower($encryption)) == 'aes256') $request['headers']['x-amz-server-side-encryption'] = 'AES256';
-    if ($storage_class && trim(strtolower($storage_class)) == 'reduced_redundancy') $request['headers']['x-amz-storage-class'] = 'REDUCED_REDUNDANCY';
+    if ($encryption && trim(strtoupper($encryption)) == self::ENCRYPTION_AES256) $request['headers']['x-amz-server-side-encryption'] = self::ENCRYPTION_AES256;
+    if ($storage_class && trim(strtoupper($storage_class)) == self::STORAGE_CLASS_REDUCED_REDUNDANCY) $request['headers']['x-amz-storage-class'] = self::STORAGE_CLASS_REDUCED_REDUNDANCY;
     // multipart
     if ($parts > 1) {
       $headers = array('date' => gmdate(self::SIGNATURE_DATE_FORMAT));
       $params = array('uploads' => '');
       // encryption and storage class headers go into the initiation request - not the part requests
       if (isset($request['headers']['x-amz-server-side-encryption'])) {
-        $headers['x-amz-server-side-encryption'] = 'AES256';
+        $headers['x-amz-server-side-encryption'] = self::ENCRYPTION_AES256;
         unset($request['headers']['x-amz-server-side-encryption']);
       }
       if (isset($request['headers']['x-amz-storage-class'])) {
-        $headers['x-amz-storage-class'] = 'REDUCED_REDUNDANCY';
+        $headers['x-amz-storage-class'] = self::STORAGE_CLASS_REDUCED_REDUNDANCY;
         unset($request['headers']['x-amz-storage-class']);
       }
       $headers['Authorization'] = $this->sign('POST', $headers, $container, $object, $params);
@@ -335,7 +332,6 @@ class S3ObjectStorageController extends ObjectStorageController {
       $request['url'] = $url;
       $signature = $this->sign('PUT', $request['headers'], $container, $object, $params);
       $request['headers']['Authorization'] = $signature;
-      self::log(sprintf('Got AWS S3 authorization signature "%s" for string "%s"', $signature, str_replace("\n", '\n', $string)), 'S3ObjectStorageController::initUpload', __LINE__);
     }
     return $request;
   }
@@ -409,6 +405,47 @@ class S3ObjectStorageController extends ObjectStorageController {
     self::log(sprintf('Signing string %s', str_replace("\n", '\n', $string)), 'S3ObjectStorageController::sign', __LINE__);
 		$signature = base64_encode(extension_loaded('hash') ? hash_hmac('sha1', $string, $this->api_secret, TRUE) : pack('H*', sha1((str_pad($this->api_secret, 64, chr(0x00)) ^ (str_repeat(chr(0x5c), 64))) . pack('H*', sha1((str_pad($this->api_secret, 64, chr(0x00)) ^ (str_repeat(chr(0x36), 64))) . $string)))));
 		return sprintf('AWS %s:%s', $this->api_key, $signature);
+  }
+  
+  /**
+   * may be overridden to perform additional API/service specific validations
+   * including validation of the runtime parameters listed below (see README 
+   * for details). Return TRUE if validation passes, FALSE otherwise
+   * @param string $api_endpoint
+   * @param string $api_region
+   * @param boolean $api_ssl
+   * @param boolean $dns_containers 
+   * @param boolean $encryption 
+   * @param boolean $storage_class 
+   * @return boolean
+   */
+  protected function validateApi($api_endpoint, $api_region, $api_ssl, $dns_containers, $encryption, $storage_class) {
+    $validated = TRUE;
+		
+    if (!$api_endpoint && $api_region) {
+      $found = FALSE;
+      $api_region = trim(strtolower($api_region));
+  		foreach(explode("\n", file_get_contents(dirname(__FILE__) . '/region-mappings.ini')) as $line) {
+  			if (substr(trim($line), 0, 1) == '#') continue;
+  			if (preg_match('/^([^=]+)=(.*)$/', trim($line), $m)) {
+  				if (in_array($api_region, explode(',', $m[1]))) $found = TRUE;
+  			}
+  		}
+  		if (!$found) {
+        $validated = FALSE;
+        self::log(sprintf('api_region %s is not valid. See README for valid options', $api_region), 'S3ObjectStorageController::validateApi', __LINE__, TRUE);
+  		}
+    }
+    if ($encryption && trim(strtoupper($encryption)) != self::ENCRYPTION_AES256) {
+      $validated = FALSE;
+      self::log(sprintf('encryption parameter %s is not supported. Only %s encryption is supported', $encryption, self::ENCRYPTION_AES256), 'S3ObjectStorageController::validateApi', __LINE__, TRUE);
+    }
+    $storage_class = trim(strtoupper($storage_class));
+    if ($storage_class && $storage_class != self::STORAGE_CLASS_STANDARD && $storage_class != self::STORAGE_CLASS_REDUCED_REDUNDANCY) {
+      $validated = FALSE;
+      self::log(sprintf('storage_class %s is not valid. Valid options are: %s or %s', $storage_class, self::STORAGE_CLASS_STANDARD, self::STORAGE_CLASS_REDUCED_REDUNDANCY), 'S3ObjectStorageController::validateApi', __LINE__, TRUE);
+    }
+    return $validated;
   }
   
 }

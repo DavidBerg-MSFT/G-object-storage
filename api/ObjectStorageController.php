@@ -35,12 +35,14 @@ abstract class ObjectStorageController {
   protected $api_region;
   protected $api_secret;
   protected $api_ssl;
+  protected $dns_containers;
   
   // private attributes - may not be accessed by API implementations
   private $api;
   private $cleanup;
   private $container;
   private $container_wait;
+  private $continue_errors = array();
   private $duration;
   private $encryption;
   private $insecure;
@@ -478,7 +480,7 @@ abstract class ObjectStorageController {
           self::log(sprintf('Successfully completed %d download requests for %s/%s', count($requests), $this->container, $name), 'ObjectStorageController::download', __LINE__);
         }
         else {
-          $success = $result['lowest_status'] && $result['lowest_status'] < 400 ? FALSE : NULL;
+          $success = $result['lowest_status'] && ($result['lowest_status'] < 400 || in_array($result['lowest_status'], $this->continue_errors)) ? FALSE : NULL;
           self::log(sprintf('One or more download requests for %s/%s failed - lowest status %d; highest status %d', $this->container, $name, $result['lowest_status'], $result['highest_status']), 'ObjectStorageController::download', __LINE__, TRUE);
         }
       }
@@ -558,9 +560,16 @@ abstract class ObjectStorageController {
               self::log(sprintf('Base container name %s; container_wait: %d; Resource ID %d', $_instances[$api]->container, $_instances[$api]->container_wait, getenv('bm_resource_id')), 'ObjectStorageController::getInstance', __LINE__);
               $_instances[$api]->container = str_replace('{resourceId}', getenv('bm_resource_id'), $_instances[$api]->container);
               self::log(sprintf('Actual container name: %s', $_instances[$api]->container), 'ObjectStorageController::getInstance', __LINE__);
+              if (getenv('bm_param_continue_errors')) {
+                foreach(explode(',', getenv('bm_param_continue_errors')) as $status) {
+                  if (is_numeric($status = trim($status)) && $status >= 400 && $status < 600 && !in_array($status, $_instances[$api]->continue_errors)) $_instances[$api]->continue_errors[] = $status*1;
+                }
+              } 
+              if ($_instances[$api]->continue_errors) self::log(sprintf('The following error status codes will be ignored: ', implode(', ', $_instances[$api]->continue_errors)), 'ObjectStorageController::getInstance', __LINE__);
+              $_instances[$api]->dns_containers = getenv('bm_param_dns_containers') !== '0';
               $_instances[$api]->duration = getenv('bm_param_duration');
               if (preg_match('/^([0-9]+)([smh])$/i', trim($_instances[$api]->duration), $m)) {
-                $multiplier = strtolower($m[2]) == 'm' ? 60 : (strtolower($m[2]) == 'm' ? 3600 : 1);
+                $multiplier = strtolower($m[2]) == 'm' ? 60 : (strtolower($m[2]) == 'h' ? 3600 : 1);
                 $_instances[$api]->duration = $m[1] * $multiplier;
               }
               else $_instances[$api]->duration *= 1;
@@ -572,14 +581,14 @@ abstract class ObjectStorageController {
               $_instances[$api]->name = str_replace('{resourceId}', getenv('bm_resource_id'), $_instances[$api]->name);
               $_instances[$api]->rampup = getenv('bm_param_rampup');
               if (preg_match('/^([0-9]+)([smh])$/i', trim($_instances[$api]->rampup), $m)) {
-                $multiplier = strtolower($m[2]) == 'm' ? 60 : (strtolower($m[2]) == 'm' ? 3600 : 1);
+                $multiplier = strtolower($m[2]) == 'm' ? 60 : (strtolower($m[2]) == 'h' ? 3600 : 1);
                 $_instances[$api]->rampup = $m[1] * $multiplier;
               }
               else $_instances[$api]->rampup *= 1;
               self::log(sprintf('Set rampup to %d secs', $_instances[$api]->rampup), 'ObjectStorageController::getInstance', __LINE__);
               $_instances[$api]->randomize = getenv('bm_param_randomize') == '1';
               $_instances[$api]->segment = getenv('bm_param_segment');
-              if ($_instances[$api]->segment == '1') $_instances[$api]->segment = round(($_instances[$api]->multipartMinSegment()/1024)/1024) . 'MB';
+              if ($_instances[$api]->segment == '1') $_instances[$api]->segment = round((($_instances[$api]->multipartMinSegment() ? $_instances[$api]->multipartMinSegment() : $_instances[$api]->multipartMaxSegment())/1024)/1024) . 'MB';
               if ($_instances[$api]->segment) $_instances[$api]->segmentBytes = self::sizeToBytes($_instances[$api]->segment);
               $_instances[$api]->size = getenv('bm_param_size');
               // convert size labels to normalized byte values
@@ -1085,37 +1094,70 @@ abstract class ObjectStorageController {
     $lastPartSize = NULL;
     // determine number of parts to upload concurrently
     $workers = $testObject ? $this->workers : $this->workers_init;
-    if ($this->multipartSupported() && $workers > 1 && $this->segmentBytes) {
+    if ($workers > 1 && $this->segmentBytes) {
       $parts = ceil($bytes/$this->segmentBytes);
       if ($parts > $workers) $parts = $workers;
       if ($parts > 1) {
         $partSize = round($bytes/$parts);
-        $lastPartSize = $bytes - ($partSize * ($parts - 1)); 
+        $lastPartSize = $bytes - ($partSize * ($parts - 1));
       }
       else $parts = NULL;
     }
     self::log(sprintf('Initiating upload of %d bytes to %s/%s using %d parts. Stats will%s be recorded', $bytes, $this->container, $name, $parts ? $parts : 1, $record ? '' : ' not'), 'ObjectStorageController::upload', __LINE__);
     
+    // upload size exceeds max allowed => convert to multipart
+    if ($this->multipartSupported() && $this->uploadMaxSize() && !$parts && $bytes > $this->uploadMaxSize()) {
+      $parts = ceil($bytes/($this->multipartMaxSegment() ? $this->multipartMaxSegment() : $this->uploadMaxSize()));
+      $partSize = round($bytes/$parts);
+      $lastPartSize = $bytes - ($partSize * ($parts - 1));
+      self::log(sprintf('Changed single worker upload to %d parts of %d bytes because %d bytes is more than the max allowed %d by the storage platform', $parts, $partSize, $bytes, $this->uploadMaxSize()), 'ObjectStorageController::upload', __LINE__);
+    }
+    // multipart segment size exceeds max allowed - use more segments
+    if ($this->multipartSupported() && $this->multipartMaxSegment() && $parts && $partSize > $this->multipartMaxSegment()) {
+      $oparts = $parts;
+      $opartSize = $partSize;
+      $parts = ceil($bytes/$this->multipartMaxSegment());
+      $partSize = round($bytes/$parts);
+      $lastPartSize = $bytes - ($partSize * ($parts - 1));
+      self::log(sprintf('Changed number of parts from %d to %d of %d bytes because the original part size %d exceeded the max allowed %d', $oparts, $parts, $partSize, $opartSize, $this->multipartMaxSegment()), 'ObjectStorageController::upload', __LINE__);
+    }
+    
+    $uploads = array();
+    $numRequests = $parts ? $parts : ($testObject ? $this->workers : 1);
+    // simulate multipart uploads
     if ($record) $start = microtime(TRUE);
-    if (($upload = $this->initUpload($this->container, $name, $bytes, $this->encryption, $this->storage_class, $parts)) && 
-        isset($upload['url']) && preg_match('/^http/i', $upload['url']) && 
-        isset($upload['headers']) && is_array($upload['headers']) && count($upload['headers'])) {
-      if ($record) $this->stat_time_admin += microtime(TRUE) - $start;
+    if ($parts > 1 && !$this->multipartSupported()) {
+      for($i=1; $i<=$numRequests; $i++) {
+        $size = $i == $numRequests ? $lastPartSize : $partSize;
+        $uploads[$i] = $this->initUpload($this->container, $name . '.' . $i, $size, $this->encryption, $this->storage_class);
+      }
+    }
+    else $uploads[1] = $this->initUpload($this->container, $name, $bytes, $this->encryption, $this->storage_class, $parts);
+    if ($record) $this->stat_time_admin += microtime(TRUE) - $start;
+    
+    if ($uploads && $uploads[1] && isset($uploads[1]['url']) && preg_match('/^http/i', $uploads[1]['url']) && 
+        isset($uploads[1]['headers']) && is_array($uploads[1]['headers']) && count($uploads[1]['headers'])) {
       $requests = array();
-      $numRequests = $parts ? $parts : ($testObject ? $this->workers : 1);
       // build headers for the curl requests
       for($i=1; $i<=$numRequests; $i++) {
         $size = $parts ? ($i == $numRequests ? $lastPartSize : $partSize) : $bytes;
+        $upload = isset($uploads[$i]) ? $uploads[$i] : $uploads[1];
         $request = array('url' => $upload['url'], 'method' => isset($upload['method']) ? $upload['method'] : 'PUT', 'headers' => isset($upload['headers'][$i - 1]) ? $upload['headers'][$i - 1] : $upload['headers']);
         // remove content-length header - this is set dynamically
         foreach(array_keys($request['headers']) as $key) if (strtolower($key) == 'content-length' || strtolower($key) == 'content-type') unset($request['headers'][$key]);
         $request['headers']['Content-Length'] = $size;
         $request['headers']['Content-Type'] = self::CONTENT_TYPE;
         $request['url'] = str_replace('{size}', $size, $request['url']);
-        if ($parts) $request['url'] = str_replace('{part}', $i, $request['url']);
+        if ($parts) {
+          $request['url'] = str_replace('{part}', $i, $request['url']);
+          $request['url'] = str_replace('{part_base64}', base64_encode(sprintf('%04d', $i)), $request['url']);
+        }
         foreach(array_keys($request['headers']) as $key) {
           $request['headers'][$key] = str_replace('{size}', $size, $request['headers'][$key]);
-          if ($parts) $request['headers'][$key] = str_replace('{part}', $i, $request['headers'][$key]);
+          if ($parts) {
+            $request['headers'][$key] = str_replace('{part}', $i, $request['headers'][$key]);
+            $request['headers'][$key] = str_replace('{part_base64}', base64_encode(sprintf('%04d', $i)), $request['headers'][$key]);
+          }
         }
         $requests[] = $request;
         self::log(sprintf('Added %d byte upload request %d with URL %s', $size, $i, $request['url']), 'ObjectStorageController::upload', __LINE__);
@@ -1127,16 +1169,44 @@ abstract class ObjectStorageController {
         self::log(sprintf('Added curl request for %s', $request['url']), 'ObjectStorageController::upload', __LINE__);
       }
       
-      if ($result = $this->curl($curl, FALSE, $record)) {
+      if (count($requests) > $workers) {
+        self::log(sprintf('Processing requests in %d request batches because %d exceeds the number of allowed workers %d', $workers, count($requests), $workers), 'ObjectStorageController::upload', __LINE__);
+        $result = array('urls' => array(), 'request' => array(), 'response' => array(), 'results' => array(), 'status' => array());
+        $pos = 0;
+        for($i=0; $i<count($curl); $i += $workers) {
+          self::log(sprintf('Processing request batch %d-%d of %d', $i+1, $i+$workers, count($curl)), 'ObjectStorageController::upload', __LINE__);
+          if ($r = $this->curl(array_slice($curl, $i, $workers), FALSE, $record)) {
+            self::log(sprintf('Request batch %d-%d of %d completed successfully', $i+1, $i+1+$workers, count($curl)), 'ObjectStorageController::upload', __LINE__);
+            if (!isset($result['lowest_status']) || $result['lowest_status'] > $r['lowest_status']) $result['lowest_status'] = $r['lowest_status'];
+            if (!isset($result['highest_status']) || $result['highest_status'] < $r['highest_status']) $result['highest_status'] = $r['highest_status'];
+            foreach(array('urls', 'request', 'response', 'results', 'status') as $key) {
+              foreach($r[$key] as $val) $result[$key][] = $val;
+            }
+          }
+          else {
+            self::log(sprintf('Unable to invoke batched requests for %d workers at offset %d', $workers, $i), 'ObjectStorageController::upload', __LINE__, TRUE);
+            $result = NULL;
+            break;
+          }
+        }
+        self::log(sprintf('Worker batch processing complete'), 'ObjectStorageController::upload', __LINE__);
+      }
+      else $result = $this->curl($curl, FALSE, $record);
+      
+      if ($result) {
         if ($record) $start = microtime(TRUE);
-        if ($result['highest_status'] < 400 && ($parts <= 1 || $this->completeMultipartUpload($this->container, $name, $result))) {
+        if ($result['highest_status'] < 400 && ($parts <= 1 || !$this->multipartSupported() || $this->completeMultipartUpload($this->container, $name, $result))) {
           if ($record) $this->stat_time_admin += microtime(TRUE) - $start;
           $success = TRUE;
-          exec(sprintf('echo "%s" >> %s/%s', $name, getenv('bm_run_dir'), $testObject ? '.test-objects' : '.cleanup-objects')); 
+          foreach(array_keys($uploads) as $i) {
+            $upload = isset($uploads[$i]) ? $uploads[$i] : $uploads[1];
+            $pieces = explode('?', basename($upload['url']));
+            exec(sprintf('echo "%s" >> %s/%s', $pieces[0], getenv('bm_run_dir'), $testObject ? '.test-objects' : '.cleanup-objects')); 
+          }
           self::log(sprintf('Successfully uploaded object %s/%s in %d parts', $this->container, $name, $parts ? $parts : 1), 'ObjectStorageController::upload', __LINE__);
         }
         else {
-          $success = $result['lowest_status'] && $result['lowest_status'] < 400 ? FALSE : NULL;
+          $success = $result['lowest_status'] && ($result['lowest_status'] < 400 || in_array($result['lowest_status'], $this->continue_errors)) ? FALSE : NULL;
           self::log(sprintf('Failed to upload object %s/%s in %d parts. lowest status %d; highest status %d', $this->container, $name, $parts, $result['lowest_status'], $result['highest_status']), 'ObjectStorageController::upload', __LINE__, TRUE);
         }
       }
@@ -1180,6 +1250,20 @@ abstract class ObjectStorageController {
         $this->validated = FALSE;
       }
       
+      // validate upload size
+      if ($this->validated && ($this->type == 'push' || $this->type == 'both')) {
+        foreach ($this->sizes as $label => $size) {
+          if ($this->uploadMaxSize() && $size > $this->uploadMaxSize() && !$this->segmentBytes) {
+            self::log(sprintf('Upload size %s cannot be greater than %d bytes', $label, $this->uploadMaxSize()), 'ObjectStorageController::validate', __LINE__, TRUE);
+            $this->validated = FALSE;
+          }
+          else if ($this->segmentBytes && $this->multipartMaxSegment() && $this->segmentBytes > $this->multipartMaxSegment()) {
+            self::log(sprintf('Segment size %s cannot be greater than %d bytes', $this->segment, $this->multipartMaxSegment()), 'ObjectStorageController::validate', __LINE__, TRUE);
+            $this->validated = FALSE;
+          }
+        } 
+      }
+      
       $start = microtime(TRUE);
       if (!$this->authenticate($this->api_key, $this->api_secret, $this->api_region, $this->api_endpoint)) {
         self::log(sprintf('Authentication failed using key %s; region %s; endpoint %s', $this->api_key, $this->api_region, $this->api_endpoint), 'ObjectStorageController::validate', __LINE__, TRUE);
@@ -1189,11 +1273,11 @@ abstract class ObjectStorageController {
       $this->stat_time_admin += microtime(TRUE) - $start;
       
       // service specific validations
-      if (!$this->validateApi()) {
-        self::log('API validation failed', 'ObjectStorageController::validate', __LINE__, TRUE);
+      if (!$this->validateApi($this->api_endpoint, $this->api_region, $this->api_ssl, $this->dns_containers, $this->encryption, $this->storage_class)) {
+        self::log('API/service validation failed', 'ObjectStorageController::validate', __LINE__, TRUE);
         $this->validated = FALSE;
       }
-      else self::log('API validation successful', 'ObjectStorageController::validate', __LINE__);
+      else self::log('API/service validation successful', 'ObjectStorageController::validate', __LINE__);
     }
     return $this->validated;
   }
@@ -1223,8 +1307,18 @@ abstract class ObjectStorageController {
   }
   
   /**
+   * may be overridden to define a maximum segment size in bytes for multipart 
+   * uploads. If NULL, no maximum size constraint will be applied
+   * @return int
+   */
+  protected function multipartMaxSegment() {
+    return NULL;
+  }
+  
+  /**
    * may be overridden to define a minimum segment size in bytes for multipart 
-   * uploads (default is 5 MB)
+   * uploads (default is 5 MB). If NULL, no minimum size constraint will be 
+   * applied
    * @return int
    */
   protected function multipartMinSegment() {
@@ -1248,10 +1342,27 @@ abstract class ObjectStorageController {
   }
   
   /**
-   * may be overridden to perform additional service specific validations
+   * may be overridden to define a maximum single request upload size in bytes.
+   * If NULL, no maximum size constraint will be applied
+   * @return int
+   */
+  protected function uploadMaxSize() {
+    return NULL;
+  }
+  
+  /**
+   * may be overridden to perform additional API/service specific validations
+   * including validation of the runtime parameters listed below (see README 
+   * for details). Return TRUE if validation passes, FALSE otherwise
+   * @param string $api_endpoint
+   * @param string $api_region
+   * @param boolean $api_ssl
+   * @param boolean $dns_containers 
+   * @param boolean $encryption 
+   * @param boolean $storage_class 
    * @return boolean
    */
-  protected function validateApi() {
+  protected function validateApi($api_endpoint, $api_region, $api_ssl, $dns_containers, $encryption, $storage_class) {
     return TRUE;
   }
   
@@ -1329,9 +1440,12 @@ abstract class ObjectStorageController {
    *                https if the $this->api_ssl flag is set and supported by 
    *                the storage platform. may contain the following dynamic 
    *                tokens:
-   *                  {size}  replaced with the byte size of the file/part
-   *                  {part}  replaced with incrementing numeric value 
-   *                           corresponding with the part number
+   *                  {size}        replaced with the byte size of the file/part
+   *                  {part}        replaced with incrementing numeric value 
+   *                                corresponding with the part number
+   *                  {part_base64} replaced with incrementing base64 encoded 
+   *                                numeric value corresponding with the part 
+   *                                number
    *   method       http method (if other than PUT)
    *   headers      REQUIRED / hash containing request headers. header values 
    *                may contain the same dynamic tokens as 'url'. The 

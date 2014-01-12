@@ -47,7 +47,16 @@ RUNTIME PARAMETERS
                    Container will be created if it does not already exist
 * container_wait   Number of seconds to wait after a container is created 
                    before attempting to use it. Default is 1 second
+* continue_errors  optional comma separated list of status codes that should 
+                   not trigger testing to stop. By default, if all workers 
+                   experience an error during a given test operation, testing
+                   will stop. This parameter can be used to bypass this 
+                   behavior
 * debug            [0|1] Enable verbose logging? (default 0)
+* dns_containers   [1|0] Whether to reference containers using DNS - if 
+                   supported by the storage service (e.g. 
+                   https://mybucket.storage_endpoint.com) or URI based methods 
+                   (e.g. https://storage_endpoint.com/mybucket). Default is 1
 * duration         Duration for each test iteration - either a set time or 
                    number of test operations. For time, a quantifier suffix 
                    must be used including either s/seconds, m/minutes, or 
@@ -92,14 +101,13 @@ RUNTIME PARAMETERS
                    which is less than 32MB. Hence, [object size]/[segment]
                    would be used to reduce the number of workers from 16 to 8
                    (256/32==8). In the case where an object storage service 
-                   does not support range requests (for download), or multipart 
-                   (for upload), testing behavior will revert to independent 
-                   operations for the sizes designated. Setting this parameter 
+                   does not support multipart (for upload testing), segmented 
+                   testing will be simulated by performing multiple concurrent 
+                   operations for the designated size. Setting this parameter 
                    to "1" will cause the test harness to utilize max possible 
                    segmentation based on number of workers, object size and 
                    service specific segmentation support (e.g. AWS S3 multipart 
-                   uploads must be at least 5MB each)
-                   Examples:
+                   uploads must be at least 5MB each). Examples:
                      -p segment=32MB  32MB minimum segment size per worker
                      -p segment=1MB   1MB minimum segment size per worker
 * size:            Object size(s) to test with in bytes. Multiple sizes may be 
