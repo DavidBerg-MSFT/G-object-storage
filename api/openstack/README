@@ -1,0 +1,75 @@
+Implements OpenStack API compatibility for the object storage test harness. 
+The test harness supports OpenStack Identity Service v2.0. Review the API 
+specific *CUSTOM* parameters below for details.
+
+The OpenStack API supports a pseudo multipart upload capability using separate
+objects, each uploaded separately and represented as a single object using a 
+text based manifest. However, unlike S3 and Azure APIs, the individual parts 
+are never combined into a single large object and will be visible as separate 
+objects within the container(s).
+
+== Feature Support ==
+# Multiple Regions                   YES (see below)
+# DNS Containers                     NO
+# Download Concurrency (Byte Range)  YES
+# Upload Concurrency (Multipart)     YES (using Static Large Object method)
+# Min Multipart Segment Size         1MB
+# Max Multipart Segment Size         NA
+# Max Upload Operation Size          NA
+# Encryption                         NO
+# Multiple Storage Classes           NO
+
+
+== API Specific Runtime Parameters ==
+* api_region       region identifier - this parameter is used to determine the 
+                   correct service endpoint returned in the serviceCatalog 
+                   following successful authentication. Common region options 
+                   are:
+                   
+                     DFW: Rackspace - Dallas
+                     ORD: Rackspace - Chicago
+                     LON: Rackspace - London
+                     HKG: Rackspace - Hong Kong
+                     IAD: Rackspace - Northern Virginia
+                     SYD: Rackspace - Sydney
+                     region-b.geo-1: HP
+                     region-a.geo-1: HP
+                     
+                   If not specified, the first endpoint matching 
+                   'api_service_type' will be used
+                   
+* api_endpoint     *REQUIRED* Complete URL for the identity service endpoint.
+                   Some common endpoints are:
+                   
+                     Rackspace (US Accounts):     https://identity.api.rackspacecloud.com/v2.0/
+                     Rackspace (London Accounts): https://lon.identity.api.rackspacecloud.com/v2.0/
+                     HP (us-west):                https://region-a.geo-1.identity.hpcloudsvc.com:35357/v2.0/
+                     HP (us-east):                https://region-b.geo-1.identity.hpcloudsvc.com:35357/v2.0/
+                     
+                   If the http/https portion is left out, it will be prepended
+                   based on the value of the 'api_ssl' parameter
+                   
+* api_auth_type    *CUSTOM* Authentication type. One of the following values. 
+                   Unless otherwise specified, passwordCredentials will be 
+                   assumed:
+                   
+                     passwordCredentials:         api_key=username; api_secret=password (DEFAULT)
+                     apiAccessKeyCredentials:     api_key=accessKey; api_secret=secretKey
+                     RAX-KSKEY:apiKeyCredentials: api_key=username; api_secret=apiKey (Rackspace proprietary)
+                     
+* api_service_type *CUSTOM* Service type identifier. Default is 'object-store'.
+                   This parameter is used to determine the correct service 
+                   endpoint returned in the serviceCatalog following successful 
+                   authentication
+                     
+* api_tenant_id    *CUSTOM* Optional tenantId parameter to specify in the 
+                   authentication request
+                   
+* api_tenant_name *CUSTOM* Optional tenantName parameter to specify in the 
+                  authentication request
+
+* api_url_type     *CUSTOM* [public|internal] Optional type of endpoint URL to 
+                   use. Some services (e.g. Rackspace) provide both internal 
+                   and public endpoints. The internal URL is likely more 
+                   performant for compute instances located in the same data 
+                   center. Default is 'public'
