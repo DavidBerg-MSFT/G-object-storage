@@ -1123,7 +1123,7 @@ abstract class ObjectStorageController {
     }
     
     $uploads = array();
-    $numRequests = $parts ? $parts : ($testObject ? $this->workers : 1);
+    $numRequests = $parts ? $parts : ($testObject && !$this->segmentBytes ? $this->workers : 1);
     // simulate multipart uploads
     if ($record) $start = microtime(TRUE);
     if ($parts > 1 && !$this->multipartSupported()) {

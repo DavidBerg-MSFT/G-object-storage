@@ -7,15 +7,16 @@
  */
 $status = 1;
 
-if (is_file($argv[1]) && is_readable($argv[1])) {
+if (is_file($argv[1]) && is_readable($argv[1]) && ($fp = fopen($argv[1], 'r'))) {
 	$status = 0;
 	$in_results = FALSE;
 	// go through each line in the output file and look for a line that starts
 	// with [results]. after that line, search for and print key/value pairs
-	foreach(file($argv[1]) as $line) {
+	while($line = fgets($fp)) {
 		if (!$in_results && preg_match('/^\[results\]/', $line)) $in_results = TRUE;
 		else if ($in_results && preg_match('/^([^=]+)=(.*)$/', $line)) print($line);
 	}
+	fclose($fp);
 }
 
 exit($status);
