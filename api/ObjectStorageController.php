@@ -245,7 +245,7 @@ abstract class ObjectStorageController {
       if (isset($request['range'])) $cmd .= ' -r ' . $request['range'];
       $result['urls'][$i] = $request['url'];
       $cmd .= sprintf(' "%s"', $request['url']);
-      if ($bm_param_debug) self::log(sprintf('Added curl command: %s', preg_replace('/X-Auth-Token:\s+([^"]+)/', 'X-Auth-Token: xxx', $cmd)), 'ObjectStorageController::curl', __LINE__);
+      if ($bm_param_debug) self::log(sprintf('Added curl command: %s', $cmd), 'ObjectStorageController::curl', __LINE__);
       $ofiles[$i] = sprintf('%s/%s', getenv('bm_run_dir'), 'curl_output_' . rand());
       fwrite($fp, sprintf("%s > %s 2>&1 &\n", $cmd, $ofiles[$i]));
     }
@@ -424,13 +424,12 @@ abstract class ObjectStorageController {
   }
   
   /**
-   * uploads an object containing $bytes of random data to the designated 
-   * test container using $name for the object name. Returns one of the 
+   * downloads an object containing random data. Returns one of the 
    * following values:
    *   TRUE:  successful
    *   FALSE: failed due to http error
    *   NULL:  curl failure (non service related)
-   * @param string $name the name for the object to upload
+   * @param string $name the name for the object to download
    * @param boolean $record whether or not to record stats for this operation
    * @return boolean
    */
@@ -767,6 +766,12 @@ abstract class ObjectStorageController {
     global $bm_param_debug;
     if (!isset($bm_param_debug)) $bm_param_debug = getenv('bm_param_debug') == '1';
     if ($msg && ($bm_param_debug || $error)) {
+      // remove passwords and secrets
+      $msg = preg_replace('/Key:\s+([^"]+)/', 'Key: xxx', $msg);
+      $msg = preg_replace('/Token:\s+([^"]+)/', 'Token: xxx', $msg);
+      $msg = preg_replace('/Authorization:\s+([^"]+)/', 'Authorization: xxx', $msg);
+      $msg = preg_replace('/:\/\/([^:]+):([^@]+)@/', '://xxx:xxx@', $msg);
+      
     	global $base_error_level;
     	$source = basename($source);
     	if ($source1) $source1 = basename($source1);
@@ -864,7 +869,7 @@ abstract class ObjectStorageController {
   public static final function sizeToBytes($size) {
     $bytes = NULL;
     if (is_numeric($size)) $bytes = $size*1;
-    else if (preg_match('/^([0-9]+)\s*([gmk]?[b])$/', trim(strtolower($size)), $m)) {
+    else if (preg_match('/^([0-9]+)\s*([gmk]?[b])$/i', trim(strtolower($size)), $m)) {
       $factor = 1;
       switch($m[2]) {
         case 'kb':
@@ -1265,7 +1270,7 @@ abstract class ObjectStorageController {
       }
       
       $start = microtime(TRUE);
-      if (!$this->authenticate($this->api_key, $this->api_secret, $this->api_region, $this->api_endpoint)) {
+      if (!$this->authenticate()) {
         self::log(sprintf('Authentication failed using key %s; region %s; endpoint %s', $this->api_key, $this->api_region, $this->api_endpoint), 'ObjectStorageController::validate', __LINE__, TRUE);
         $this->validated = FALSE;
       }
