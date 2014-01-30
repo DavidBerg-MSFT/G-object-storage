@@ -770,7 +770,12 @@ abstract class ObjectStorageController {
       $msg = preg_replace('/Key:\s+([^"]+)/', 'Key: xxx', $msg);
       $msg = preg_replace('/Token:\s+([^"]+)/', 'Token: xxx', $msg);
       $msg = preg_replace('/Authorization:\s+([^"]+)/', 'Authorization: xxx', $msg);
-      $msg = preg_replace('/:\/\/([^:]+):([^@]+)@/', '://xxx:xxx@', $msg);
+      foreach(array(getenv('bm_param_api_key'), getenv('bm_param_api_secret')) as $secret) {
+        if ($secret) {
+          $msg = str_replace($secret, 'xxx', $msg);
+          $msg = str_replace(urlencode($secret), 'xxx', $msg);
+        }
+      }
       
     	global $base_error_level;
     	$source = basename($source);
