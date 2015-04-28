@@ -27,7 +27,7 @@ Implements Google Cloud Storage (GCS) API compatibility.
                    Default is US
 * encryption       GCS implicitly uses encryption - there is no option to 
                    enable or disable this
-* storage_class    [STANDARD | DURABLE_REDUCED_AVAILABILITY] Desired S3 storage 
+* storage_class    [STANDARD | DURABLE_REDUCED_AVAILABILITY] Desired storage 
                    class. Default is STANDARD for global containers and always 
                    DURABLE_REDUCED_AVAILABILITY (DRA) for regional containers 
                    (regional containers must be DRA). Default is STANDARD
