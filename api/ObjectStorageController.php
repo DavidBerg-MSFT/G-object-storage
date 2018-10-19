@@ -720,7 +720,7 @@ abstract class ObjectStorageController {
           if ($objExists && $objSize != $bytes) {
             $objExists = FALSE;
             self::log(sprintf('Object %s/%s exists but is the incorrect size. Expecting %d bytes; Actual %d bytes. Attempting to delete...', $this->container, $name, $bytes, $objSize), 'ObjectStorageController::initObjects', __LINE__);
-            if ($this->deleteObject($container, $object)) self::log(sprintf('Object %s/%s deleted successfully', $this->container, $name), 'ObjectStorageController::initObjects', __LINE__);
+            if ($this->deleteObject($this->container, $object)) self::log(sprintf('Object %s/%s deleted successfully', $this->container, $name), 'ObjectStorageController::initObjects', __LINE__);
             else {
               $success = FALSE;
               self::log(sprintf('Unable to delete object %s/%s', $this->container, $name), 'ObjectStorageController::initObjects', __LINE__, TRUE);
@@ -1155,8 +1155,8 @@ abstract class ObjectStorageController {
         $request = array('url' => $upload['url'], 'method' => isset($upload['method']) ? $upload['method'] : 'PUT', 'headers' => isset($upload['headers'][$i - 1]) ? $upload['headers'][$i - 1] : $upload['headers']);
         // remove content-length header - this is set dynamically
         foreach(array_keys($request['headers']) as $key) if (strtolower($key) == 'content-length' || strtolower($key) == 'content-type') unset($request['headers'][$key]);
-        $request['headers']['Content-Length'] = $size;
-        $request['headers']['Content-Type'] = self::CONTENT_TYPE;
+        $request['headers']['content-length'] = $size;
+        $request['headers']['content-type'] = self::CONTENT_TYPE;
         $request['url'] = str_replace('{size}', $size, $request['url']);
         if ($parts) {
           $request['url'] = str_replace('{part}', $i, $request['url']);
@@ -1174,7 +1174,7 @@ abstract class ObjectStorageController {
       }
       $curl = array();
       foreach($requests as $request) {
-        $input = sprintf('%s/urandom.php %d', dirname(dirname(getenv('bm_run_dir'))), $request['headers']['Content-Length']);
+        $input = sprintf('%s/urandom.php %d', getenv('bm_run_dir'), $request['headers']['content-length']);
         $curl[] = array('method' => 'PUT', 'headers' => $request['headers'], 'url' => $request['url'], 'input' => $input);
         self::log(sprintf('Added curl request for %s', $request['url']), 'ObjectStorageController::upload', __LINE__);
       }
